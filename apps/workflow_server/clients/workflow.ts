@@ -3,10 +3,10 @@ import type {
   AnyEvent,
   RequestEvent,
   RequestTypeEventKeys,
+  SearchResultItem,
 } from "@rainworkflow/types/src/events";
 import { EventKeys, MessageType } from "@rainworkflow/types/src/events";
 import { execSync } from "child_process";
-import type { SearchResultItem } from "../../../../../tests/Vencord/src/userplugins/vicinaeIPC";
 import { CommonWSClient } from "./_common";
 
 function isRequestEvent<T extends RequestTypeEventKeys>(

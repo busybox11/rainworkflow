@@ -1,6 +1,7 @@
 import type { ClientType } from "./clients";
 
-import type { SearchResultItem } from "/home/rain/tests/Vencord/src/userplugins/vicinaeIPC";
+import type { SearchResultItem as VencordSearchResultItem } from "/home/rain/tests/Vencord/src/userplugins/vicinaeIPC";
+export type SearchResultItem = VencordSearchResultItem;
 
 export const MessageType = {
   REQUEST: "request",
