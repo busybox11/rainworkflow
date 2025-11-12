@@ -4,7 +4,7 @@
   "include": [
     "src/**/*",
     "../packages/types/**/*",
-    "/home/rain/tests/Vencord/packages/vencord-types/src/userplugins/vicinaeIPC.d.ts"
+    "/home/rain/tests/Vencord/src/userplugins/vicinaeIPC.tsx"
   ],
   "compilerOptions": {
     //"lib": ["es2020"],

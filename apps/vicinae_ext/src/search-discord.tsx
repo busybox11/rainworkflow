@@ -1,4 +1,11 @@
-import { Action, ActionPanel, closeMainWindow, List } from "@vicinae/api";
+import {
+  Action,
+  ActionPanel,
+  closeMainWindow,
+  Color,
+  Image,
+  List,
+} from "@vicinae/api";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createWsClient } from "./lib/ws";
 
@@ -11,9 +18,16 @@ import {
   RequestTypeEventKeys,
   ResponseTypeData,
 } from "@rainworkflow/types/src/events";
-import { SearchResultItem } from "../../../../../tests/Vencord/packages/vencord-types/src/userplugins/vicinaeIPC";
+
+// has to be import type, or itll also bundle Vencord's source in the build for this module
+import type { SearchResultItem } from "../../../../../tests/Vencord/src/userplugins/vicinaeIPC";
 
 type SearchResultData = ResponseTypeData["search"];
+
+type GroupedResults = {
+  header?: string;
+  items: SearchResultItem[];
+}[];
 
 function searchEvent(query: string): RequestEvent<typeof EventKeys.SEARCH> {
   return {
@@ -44,7 +58,6 @@ export default function ControlledList() {
 
   // Track the latest interaction ID to ignore stale responses
   const latestInteractionIdRef = useRef<string>("");
-  const debounceTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
 
   const performSearch = useCallback(
     (queryStr: string) => {
@@ -83,28 +96,64 @@ export default function ControlledList() {
     (queryStr: string) => {
       // Update UI immediately for responsiveness
       setSearchText(queryStr);
-
-      // Clear any pending debounced search
-      if (debounceTimeoutRef.current) {
-        clearTimeout(debounceTimeoutRef.current);
-      }
-
-      // Debounce the actual search
-      debounceTimeoutRef.current = setTimeout(() => {
-        performSearch(queryStr);
-      }, 100);
+      performSearch(queryStr);
     },
     [performSearch]
   );
 
-  // Cleanup debounce timeout on unmount
-  useEffect(() => {
-    return () => {
-      if (debounceTimeoutRef.current) {
-        clearTimeout(debounceTimeoutRef.current);
-      }
+  // Group results by header items
+  const groupedResults = useMemo<GroupedResults>(() => {
+    if (!searchResults) return [];
+
+    const groups: GroupedResults = [];
+    let currentGroup: { header?: string; items: SearchResultItem[] } = {
+      items: [],
     };
-  }, []);
+
+    for (const result of searchResults) {
+      if (result.type === "HEADER") {
+        // If we have items in the current group, save it
+        if (currentGroup.items.length > 0) {
+          groups.push(currentGroup);
+        }
+        // Start a new group with this header
+        // Type assertion: when type is HEADER, record is SearchResultHeaderItem
+        const headerRecord = result.record as { text: string };
+        currentGroup = {
+          header: headerRecord.text,
+          items: [],
+        };
+      } else {
+        // Add item to current group
+        currentGroup.items.push(result);
+      }
+    }
+
+    // Add the last group if it has items
+    if (currentGroup.items.length > 0) {
+      groups.push(currentGroup);
+    }
+
+    return groups;
+  }, [searchResults]);
+
+  async function handleOpenTarget(target: SearchResultItem) {
+    // close vicinae
+    closeMainWindow({
+      clearRootSearch: true,
+    });
+
+    // send focus event to workflow server
+    sendEvent(ws, {
+      $type: MessageType.REQUEST,
+      $interactionId: `vencord_focus_${Date.now()}`,
+      $client: ClientType.VICINAE,
+      $event: EventKeys.OPEN_DISCORD_TARGET,
+      data: {
+        target,
+      },
+    });
+  }
 
   return (
     <List
@@ -112,59 +161,152 @@ export default function ControlledList() {
       onSearchTextChange={handleSearchChange}
       searchBarPlaceholder={"Search Discord..."}
       isLoading={isLoading}
+      throttle
     >
-      <List.Section title={"Discord"}>
-        {searchResults?.map((result) => {
-          if (result.score < 2000) return;
+      {groupedResults.length === 0 ? (
+        <List.Section title={"Discord"}>
+          {/* Empty state handled by List component */}
+        </List.Section>
+      ) : (
+        groupedResults.map((group, groupIndex) => (
+          <List.Section
+            key={group.header ?? `group-${groupIndex}`}
+            title={group.header ?? "Discord"}
+          >
+            {group.items.map((result) => {
+              const targetName =
+                result.type === "USER"
+                  ? `@${result.record.username}`
+                  : result.type === "TEXT_CHANNEL"
+                  ? `#${result.record.name}`
+                  : result.type === "VOICE_CHANNEL"
+                  ? `🔊 ${result.record.name}`
+                  : result.record.name;
 
-          const targetName =
-            result.type === "USER"
-              ? `@${result.record.username}`
-              : result.type === "TEXT_CHANNEL"
-              ? `#${result.record.name}`
-              : result.type === "VOICE_CHANNEL"
-              ? `🔊 ${result.record.name}`
-              : result.record.name;
+              const itemEntry = makeResultItemEntry(result);
 
-          async function handleOpenTarget(target: SearchResultItem) {
-            // close vicinae
-            closeMainWindow({
-              clearRootSearch: true,
-            });
+              const icon = itemEntry.icon
+                ? {
+                    source: itemEntry.icon,
+                    mask: Image.Mask.Circle,
+                  }
+                : itemEntry.guildIcon && result.type === "GUILD"
+                ? {
+                    source: itemEntry.guildIcon,
+                    mask: Image.Mask.RoundedRectangle,
+                  }
+                : undefined;
 
-            // send focus event to workflow server
-            sendEvent(ws, {
-              $type: MessageType.REQUEST,
-              $interactionId: `vencord_focus_${Date.now()}`,
-              $client: ClientType.VICINAE,
-              $event: EventKeys.OPEN_DISCORD_TARGET,
-              data: {
-                target: target,
-              },
-            });
-          }
-
-          return (
-            <List.Item
-              key={`${result.type}-${result.id}-${result.score.toString()}`}
-              title={targetName}
-              subtitle={result.type}
-              actions={
-                <ActionPanel>
-                  <ActionPanel.Section>
-                    <Action
-                      title={`Open ${targetName}`}
-                      onAction={() => {
-                        handleOpenTarget(result);
-                      }}
-                    />
-                  </ActionPanel.Section>
-                </ActionPanel>
-              }
-            />
-          );
-        })}
-      </List.Section>
+              return (
+                <List.Item
+                  key={itemEntry.key}
+                  title={itemEntry.title}
+                  subtitle={itemEntry.subtitle}
+                  icon={icon}
+                  accessories={[
+                    ...(itemEntry.guild
+                      ? [
+                          {
+                            text: itemEntry.guild,
+                            icon: itemEntry.guildIcon
+                              ? {
+                                  source: itemEntry.guildIcon,
+                                  mask: Image.Mask.RoundedRectangle,
+                                }
+                              : undefined,
+                          },
+                        ]
+                      : []),
+                    ...(itemEntry.isUnread
+                      ? [
+                          {
+                            tag: {
+                              color: Color.SecondaryText,
+                              value: "Unread",
+                            },
+                          },
+                        ]
+                      : []),
+                    ...(itemEntry.mentions
+                      ? [
+                          {
+                            tag: {
+                              color: Color.Red,
+                              value: `🔔 ${itemEntry.mentions}`,
+                            },
+                          },
+                        ]
+                      : []),
+                  ]}
+                  actions={
+                    <ActionPanel>
+                      <ActionPanel.Section>
+                        <Action
+                          title={`Open ${targetName}`}
+                          onAction={() => {
+                            handleOpenTarget(result);
+                          }}
+                        />
+                      </ActionPanel.Section>
+                    </ActionPanel>
+                  }
+                />
+              );
+            })}
+          </List.Section>
+        ))
+      )}
     </List>
   );
+}
+
+type ResultItemEntry = {
+  key: string;
+  title: string;
+  subtitle?: string;
+  icon?: string;
+  guild?: string;
+  guildIcon?: string;
+  isUnread?: boolean;
+  mentions?: number;
+};
+
+function makeResultItemEntry(result: SearchResultItem): ResultItemEntry {
+  let entryObj: ResultItemEntry = {
+    key: `${result.type}-${
+      "id" in result.record ? result.record.id : result.record.name
+    }-${result.score.toString()}`,
+    title:
+      result.type === "USER"
+        ? `@${result.record.username}`
+        : result.type === "TEXT_CHANNEL"
+        ? `#${result.record.name}`
+        : result.type === "VOICE_CHANNEL"
+        ? `🔊 ${result.record.name}`
+        : result.record.name,
+    isUnread: result.metadata?.unread,
+    mentions: result.metadata?.mentions,
+    icon: result.metadata?.userIconURL,
+    guildIcon: result.metadata?.guildIconURL,
+  };
+
+  switch (result.type) {
+    case "TEXT_CHANNEL":
+    case "VOICE_CHANNEL":
+      const guildName = result.metadata?.guild?.name;
+      const categoryName = result.metadata?.category?.name;
+
+      return {
+        ...entryObj,
+        guild: guildName ?? "Unknown guild",
+        subtitle: categoryName,
+      };
+    case "GUILD":
+      return {
+        ...entryObj,
+        subtitle: "Server",
+      };
+  }
+
+  return entryObj;
 }
