@@ -10,8 +10,13 @@ import { useWebSocket } from "./useWebSocket";
 
 export function useDiscordSearch() {
   const [searchText, setSearchText] = useState("");
-  const [searchResults, setSearchResults] =
-    useState<ResponseTypeData["search"]["results"]>(undefined);
+  const [searchResultsObject, setSearchResultsObject] = useState<{
+    results: ResponseTypeData["search"]["results"];
+    interactionId: string;
+  }>({
+    results: undefined,
+    interactionId: "",
+  });
   const [isLoading, setIsLoading] = useState(false);
 
   // track latest interaction ID to ignore stale responses
@@ -30,7 +35,16 @@ export function useDiscordSearch() {
       data.$event === EventKeys.SEARCH &&
       data.$interactionId === latestInteractionIdRef.current
     ) {
-      setSearchResults(data.data.results);
+      setSearchResultsObject((prev) => ({
+        ...prev,
+        results: [
+          ...(prev.interactionId === data.$interactionId
+            ? prev.results || []
+            : []),
+          ...(data.data.results || []),
+        ],
+        interactionId: data.$interactionId,
+      }));
       setIsLoading(false);
     }
   }, []);
@@ -61,7 +75,7 @@ export function useDiscordSearch() {
 
   return {
     searchText,
-    searchResults,
+    searchResultsObject,
     isLoading,
     handleSearchChange,
     ws,

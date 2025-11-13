@@ -48,7 +48,7 @@ export function SearchResultItemComponent({
   }, [itemEntry.icon, itemEntry.guildIcon, result.type]);
 
   const accessories = useMemo(() => {
-    const accs = [];
+    const accs = [] as List.Item.Accessory[];
     if (itemEntry.guild) {
       accs.push({
         text: itemEntry.guild,
@@ -73,6 +73,15 @@ export function SearchResultItemComponent({
         tag: {
           color: Color.Red,
           value: `🔔 ${itemEntry.mentions}`,
+        },
+      });
+    }
+    if (itemEntry.currentUser) {
+      accs.push({
+        text: itemEntry.currentUser.username,
+        icon: {
+          source: itemEntry.currentUser.avatarURL,
+          mask: Image.Mask.Circle,
         },
       });
     }

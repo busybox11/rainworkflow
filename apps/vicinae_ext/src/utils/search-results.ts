@@ -13,33 +13,38 @@ export function groupSearchResults(
 ): GroupedResults {
   if (!results) return [];
 
-  const groups: GroupedResults = [];
-  let currentGroup: { header?: string; items: SearchResultItem[] } = {
-    items: [],
-  };
+  // We'll merge all detected groups (by header name).
+  // Use a Map<string | undefined, SearchResultItem[]> to accumulate items per header.
+  const groupMap = new Map<string | undefined, SearchResultItem[]>();
+  let currentHeader: string | undefined = undefined;
 
   for (const result of results) {
     if (result.type === "HEADER") {
-      // If we have items in the current group, save it
-      if (currentGroup.items.length > 0) {
-        groups.push(currentGroup);
-      }
-      // Start a new group with this header
-      // Type assertion: when type is HEADER, record is SearchResultHeaderItem
+      // New current group header
       const headerRecord = result.record as { text: string };
-      currentGroup = {
-        header: headerRecord.text,
-        items: [],
-      };
+      currentHeader = headerRecord.text;
+      // Ensure the group exists in the map
+      if (!groupMap.has(currentHeader)) {
+        groupMap.set(currentHeader, []);
+      }
     } else {
-      // Add item to current group
-      currentGroup.items.push(result);
+      // Push item to the group keyed by the current header.
+      if (!groupMap.has(currentHeader)) {
+        groupMap.set(currentHeader, []);
+      }
+      groupMap.get(currentHeader)!.push(result);
     }
   }
 
-  // Add the last group if it has items
-  if (currentGroup.items.length > 0) {
-    groups.push(currentGroup);
+  // Build the array of grouped results, sorting items by descending score
+  const groups: GroupedResults = [];
+  for (const [header, items] of groupMap) {
+    if (items.length > 0) {
+      groups.push({
+        header,
+        items: items.slice().sort((a, b) => (b.score ?? 0) - (a.score ?? 0)),
+      });
+    }
   }
 
   return groups;
@@ -49,6 +54,10 @@ export type ResultItemEntry = {
   key: string;
   title: string;
   subtitle?: string;
+  currentUser?: {
+    username: string;
+    avatarURL: string;
+  };
   icon?: string;
   guild?: string;
   guildIcon?: string;
@@ -75,6 +84,12 @@ export function createResultItemEntry(
     mentions: result.metadata?.mentions,
     icon: result.metadata?.userIconURL,
     guildIcon: result.metadata?.guildIconURL,
+    currentUser: result.metadata?.currentUser
+      ? {
+          username: result.metadata.currentUser.username,
+          avatarURL: result.metadata.currentUser.avatar,
+        }
+      : undefined,
   };
 
   switch (result.type) {
