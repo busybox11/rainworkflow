@@ -4,5 +4,9 @@
   "workspaces": [
     "packages/*",
     "apps/*"
+  ],
+  "trustedDependencies": [
+    "@swc/core",
+    "esbuild"
   ]
 }
